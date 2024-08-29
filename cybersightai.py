@@ -177,20 +177,18 @@ class Analysis:
             row["file_name"] = results.filename
 
             columns_names_mapping = {
-                "dr_grading_score": "ICDR_value",
+                "dr_grading_score": "ICDR_score",
                 "dr_grading": "ICDR_label",
-                "referable_dr_nsc_score": "UK_NSC_value",
-                "dr_grading_uk_nsc": "UK_NSC_label",
+                "dr_grading_uk_nsc_value": "UK_NSC_value",
+                "dr_grading_uk_nsc_label": "UK_NSC_label",
                 "referable_dr_nsc_score": "referable_dr_UK_NSC_value",
-                "referable_dr_nsc": "referable_dr_UK_NSC_label",
-                "referable_dr_score_score": "referable_dr_value",
+                "referable_dr_nsc_label": "referable_dr_UK_NSC_label",
                 "referable_dr_score": "referable_dr_label",
-                "disc_anomaly_score": "disc_anomaly_value",
                 "disc_anomaly": "disc_anomaly_label",
-                "referable_glaucoma_score_score": "referable_glaucoma_value",
-                "referable_glaucoma_score": "referable_glaucoma_label",
-                "maculopathy_score": "maculopathy_value",
                 "maculopathy": "maculopathy_label",
+                "fundus_verification": "fundus_verification",
+                "fundus_overall_gradability_value": "fundus_overall_gradability_score",
+                "fundus_overall_gradability": "fundus_overall_gradability",
             }
 
             results_with_labels = [
@@ -202,15 +200,9 @@ class Analysis:
                 "disc_anomaly",
                 "referable_glaucoma",
                 "referable_glaucoma_score",
-            ]
-
-            results_with_scores = [
                 "vcdr",
                 "fundus_verification",
                 "fundus_overall_gradability",
-                # "fundus_macula_gradability",
-                # "fundus_retina_gradability",
-                # "fundus_disc_gradability",
             ]
 
             for result_with_label in results_with_labels:
@@ -226,12 +218,62 @@ class Analysis:
                                 results.ai_outcomes,
                             )
                         )[0]
-                        row[f"{result_with_label}_score"] = np.argmax(
-                            result_name_label.results[0].values
-                        ).astype(int)
-                        row[result_with_label] = result_name_label.results[0].labels[
-                            np.argmax(result_name_label.results[0].values, axis=0)
-                        ]
+
+                        if (
+                            result_name_label.results[0].type.name == "DICHOTOMOUS"
+                        ) and (
+                            not (
+                                result_with_label.__contains__("verification")
+                                or result_with_label.__contains__("gradability")
+                            )
+                        ):
+                            row[result_with_label + "_label"] = [
+                                (
+                                    result_name_label.results[0].labels[0]
+                                    if result_name_label.results[0].values[1]
+                                    < result_name_label.results[0].threshold
+                                    else result_name_label.results[0].labels[1]
+                                )
+                            ][0]
+                            row[f"{result_with_label}_score"] = (
+                                result_name_label.results[0].values[1]
+                            )
+                        # QA outputs are a special case, we want to store the first value
+                        elif result_name_label.results[
+                            0
+                        ].type.name == "DICHOTOMOUS" and (
+                            (
+                                result_with_label.__contains__("verification")
+                                or result_with_label.__contains__("gradability")
+                            )
+                        ):
+                            row[f"{result_with_label}_label"] = [
+                                (
+                                    result_name_label.results[0].labels[0]
+                                    if result_name_label.results[0].values[1]
+                                    < result_name_label.results[0].threshold
+                                    else result_name_label.results[0].labels[1]
+                                )
+                            ][0]
+                            # Maintain backwards compatibility
+                            row[f"{result_with_label}"] = result_name_label.results[
+                                0
+                            ].values[0]
+
+                        elif result_name_label.results[0].type.name == "CONTINUOUS_GT":
+                            row[result_with_label] = result_name_label.results[
+                                0
+                            ].values[0]
+
+                        else:
+                            row[f"{result_with_label}_value"] = int(
+                                np.argmax(result_name_label.results[0].values)
+                            )
+                            row[
+                                result_with_label + "_label"
+                            ] = result_name_label.results[0].labels[
+                                np.argmax(result_name_label.results[0].values, axis=0)
+                            ]
 
                     except:
                         if results.status == "done":
@@ -243,30 +285,6 @@ class Analysis:
                 else:
                     continue
 
-            for result_with_score in results_with_scores:
-
-                if list(
-                    filter(lambda x: x.name == result_with_score, results.ai_outcomes)
-                ):
-
-                    try:
-                        result_name_score = list(
-                            filter(
-                                lambda x: x.name == result_with_score,
-                                results.ai_outcomes,
-                            )
-                        )[0]
-                        row[result_with_score] = result_name_score.results[0].values[0]
-
-                    except:
-                        if results.status == "done":
-                            row[result_with_score] = result_name_score.errors
-                        else:
-                            row[result_with_score] = results.status
-
-                else:
-                    continue
-
             new_row = {
                 (
                     columns_names_mapping[key] if key in columns_names_mapping else key
@@ -274,7 +292,16 @@ class Analysis:
                 for key, value in row.items()
             }
 
-            # return row
+            scores_to_remove = [
+                # 'fundus_verification_score',
+                # 'fundus_overall_gradability_score',
+                # # 'fundus_macula_gradability_score',
+                # # 'fundus_retina_gradability_score',
+                # # 'fundus_disc_gradability_score'
+            ]
+
+            [new_row.pop(x) for x in scores_to_remove if x in new_row]
+
             return new_row
 
         except:
